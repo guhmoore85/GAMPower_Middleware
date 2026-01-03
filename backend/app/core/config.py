@@ -136,7 +136,7 @@ class Settings(BaseSettings):
         description="JWT token expiration in minutes",
     )
     cors_origins: list[str] = Field(
-        default_factory=list,
+        default=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
         description="Allowed CORS origins",
     )
 
