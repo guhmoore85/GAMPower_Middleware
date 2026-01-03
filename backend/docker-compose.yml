@@ -1,0 +1,140 @@
+# =============================================================================
+# PAYGO Middleware Docker Compose
+# =============================================================================
+# Development environment with all dependencies
+#
+# Usage:
+#   docker-compose up -d        # Start all services
+#   docker-compose logs -f      # View logs
+#   docker-compose down         # Stop all services
+#   docker-compose down -v      # Stop and remove volumes
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      target: development
+    container_name: paygo-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - DATABASE_URL=postgresql+asyncpg://paygo:paygo_password@db:5432/paygo_db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=development-secret-key-not-for-production-use
+      - ENCRYPTION_KEY=dev-encryption-key-32bytes!
+      - ADMIN_API_KEY=development-admin-api-key-32-chars
+      - LOG_LEVEL=DEBUG
+      - LOG_FORMAT=pretty
+      - LOG_SQL_QUERIES=true
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: paygo-db
+    environment:
+      - POSTGRES_USER=paygo
+      - POSTGRES_PASSWORD=paygo_password
+      - POSTGRES_DB=paygo_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paygo -d paygo_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: paygo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Database Admin (pgAdmin) - Optional
+  # ---------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: paygo-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@paygo.local
+      - PGADMIN_DEFAULT_PASSWORD=admin
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - db
+    restart: unless-stopped
+    profiles:
+      - admin
+
+  # ---------------------------------------------------------------------------
+  # Redis Commander - Optional
+  # ---------------------------------------------------------------------------
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: paygo-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    profiles:
+      - admin
+
+volumes:
+  postgres_data:
+    name: paygo_postgres_data
+  redis_data:
+    name: paygo_redis_data
+  pgadmin_data:
+    name: paygo_pgadmin_data
+
+networks:
+  default:
+    name: paygo_network

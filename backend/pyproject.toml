@@ -1,0 +1,130 @@
+[tool.poetry]
+name = "paygo-middleware"
+version = "1.0.0"
+description = "PAYGO middleware platform connecting payment systems to IoT devices using OpenPAYGO protocols"
+authors = ["PAYGO Team <paygo@example.com>"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = {extras = ["all"], version = "^0.104.0"}
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.0"}
+asyncpg = "^0.29.0"
+alembic = "^1.12.0"
+redis = {extras = ["hiredis"], version = "^5.0.0"}
+pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
+cryptography = "^41.0.0"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+loguru = "^0.7.0"
+click = "^8.1.0"
+rich = "^13.7.0"
+apscheduler = "^3.10.0"
+httpx = "^0.25.0"
+email-validator = "^2.1.0"
+python-multipart = "^0.0.6"
+orjson = "^3.9.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+pytest-env = "^1.1.0"
+httpx = "^0.25.0"
+factory-boy = "^3.3.0"
+faker = "^19.0.0"
+black = "^23.0.0"
+isort = "^5.12.0"
+ruff = "^0.1.0"
+mypy = "^1.7.0"
+pre-commit = "^3.5.0"
+aiosqlite = "^0.19.0"
+
+[tool.poetry.scripts]
+device-simulator = "tools.device_simulator:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-vv --tb=long --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+env = [
+    "ENVIRONMENT=test",
+    "DATABASE_URL=sqlite+aiosqlite:///./test.db",
+    "REDIS_URL=redis://localhost:6379/1",
+    "SECRET_KEY=test-secret-key-for-testing-only-do-not-use-in-production",
+    "ENCRYPTION_KEY=test-encryption-key-32-bytes-ok",
+]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = ["*/tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+    | migrations
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip = ["migrations"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long (handled by black)
+    "B008", # do not perform function calls in argument defaults
+]
+exclude = ["migrations"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+exclude = ["migrations", "tests"]
