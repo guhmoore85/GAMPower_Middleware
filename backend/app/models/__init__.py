@@ -14,7 +14,9 @@ from app.models.device_activation import ActivationType, DeviceActivation
 from app.models.device_metric import DeviceMetric, MetricType
 from app.models.device_token import DeviceToken
 from app.models.payment_trigger import PaymentTrigger, TriggerType
+from app.models.refresh_token import RefreshToken
 from app.models.transaction import PaymentProvider, Transaction, TransactionStatus
+from app.models.user import User, UserRole
 
 __all__ = [
     # Enums
@@ -25,6 +27,7 @@ __all__ = [
     "MetricType",
     "ActivationType",
     "TriggerType",
+    "UserRole",
     # Models
     "Device",
     "Customer",
@@ -33,4 +36,6 @@ __all__ = [
     "DeviceActivation",
     "DeviceToken",
     "PaymentTrigger",
+    "User",
+    "RefreshToken",
 ]

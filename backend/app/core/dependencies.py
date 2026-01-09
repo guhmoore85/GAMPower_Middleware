@@ -3,7 +3,8 @@ FastAPI Dependencies for PAYGO Middleware
 
 This module provides dependency injection for:
 - Database sessions
-- Authentication/Authorization
+- Authentication/Authorization (JWT and API Key)
+- Role-based access control
 - Request ID tracking
 - Redis connections
 - Common request parameters
@@ -11,11 +12,13 @@ This module provides dependency injection for:
 CRITICAL: All dependencies validate their requirements loudly.
 """
 
-from typing import Annotated, Optional
+from functools import wraps
+from typing import Annotated, Callable, Optional
 from uuid import UUID, uuid4
 
-from fastapi import Depends, Header, HTTPException, Query, Request
-from fastapi.security import APIKeyHeader, HTTPBearer
+from fastapi import Depends, Header, HTTPException, Query, Request, status
+from fastapi.security import APIKeyHeader, HTTPBearer, OAuth2PasswordBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -24,7 +27,7 @@ from app.core.exceptions import (
     AuthorizationError,
     RateLimitError,
 )
-from app.core.logging import get_logger, set_request_id
+from app.core.logging import audit_logger, get_logger, set_request_id
 from app.core.security import decode_access_token, verify_admin_api_key
 from app.db.session import get_db_session
 
@@ -33,6 +36,7 @@ logger = get_logger(__name__)
 # Security schemes
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 # =============================================================================
@@ -102,7 +106,7 @@ DbSessionDep = Annotated[AsyncSession, Depends(get_db)]
 
 
 # =============================================================================
-# API Key Authentication
+# API Key Authentication (Legacy/Webhooks)
 # =============================================================================
 
 
@@ -167,7 +171,7 @@ ApiKeyDep = Annotated[str, Depends(verify_api_key_auth)]
 
 
 # =============================================================================
-# Admin Authentication
+# Admin API Key Authentication (Legacy - for backwards compatibility)
 # =============================================================================
 
 
@@ -234,17 +238,17 @@ AdminAuthDep = Annotated[str, Depends(require_admin_auth)]
 # =============================================================================
 
 
-async def get_current_user(
+async def get_current_user_claims(
     request: Request,
     credentials: Optional[str] = Depends(bearer_scheme),
 ) -> dict:
     """
-    Get current user from JWT token.
+    Get current user claims from JWT token.
 
     LOUD: Logs all token validation attempts.
 
     Returns:
-        Token claims including user ID
+        Token claims including user ID and role
 
     Raises:
         HTTPException 401 if token is invalid
@@ -258,17 +262,23 @@ async def get_current_user(
             request_id=request_id,
         )
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error_code": "AUTHENTICATION_ERROR",
                 "message": "Bearer token required",
                 "request_id": request_id,
             },
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     try:
         claims = decode_access_token(credentials.credentials)
         logger.debug("User authenticated", user_id=claims.get("sub"))
+
+        # Store user info in request state
+        request.state.user_id = claims.get("sub")
+        request.state.user_role = claims.get("role")
+
         return claims
 
     except AuthenticationError as e:
@@ -279,12 +289,344 @@ async def get_current_user(
             request_id=request_id,
         )
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail=e.to_dict(),
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
 
-CurrentUserDep = Annotated[dict, Depends(get_current_user)]
+# Alias for backwards compatibility
+get_current_user = get_current_user_claims
+
+CurrentUserDep = Annotated[dict, Depends(get_current_user_claims)]
+
+
+# =============================================================================
+# JWT + Database User Authentication
+# =============================================================================
+
+
+async def get_current_active_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    claims: dict = Depends(get_current_user_claims),
+):
+    """
+    Get current authenticated user from database.
+
+    Validates JWT token and fetches user from database.
+
+    LOUD: Logs authentication and any failures.
+
+    Returns:
+        User model instance
+
+    Raises:
+        HTTPException 401 if user not found or inactive
+    """
+    from app.models.user import User
+
+    request_id = getattr(request.state, "request_id", None)
+    user_id = claims.get("sub")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": "AUTHENTICATION_ERROR",
+                "message": "Invalid token: missing subject",
+                "request_id": request_id,
+            },
+        )
+
+    try:
+        result = await db.execute(
+            select(User).where(User.id == UUID(user_id))
+        )
+        user = result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(
+            "Database error fetching user",
+            user_id=user_id,
+            error=str(e),
+            request_id=request_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "INTERNAL_ERROR",
+                "message": "Failed to fetch user",
+                "request_id": request_id,
+            },
+        )
+
+    if not user:
+        logger.warning(
+            "User not found for valid token",
+            user_id=user_id,
+            request_id=request_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": "AUTHENTICATION_ERROR",
+                "message": "User not found",
+                "request_id": request_id,
+            },
+        )
+
+    if not user.is_active:
+        logger.warning(
+            "Inactive user attempted access",
+            user_id=user_id,
+            username=user.username,
+            request_id=request_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": "AUTHENTICATION_ERROR",
+                "message": "User account is deactivated",
+                "request_id": request_id,
+            },
+        )
+
+    # Store user in request state for easy access
+    request.state.current_user = user
+
+    logger.debug(
+        "User authenticated from database",
+        user_id=str(user.id),
+        username=user.username,
+        role=user.role.value,
+    )
+
+    return user
+
+
+# Import User type for annotation
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.user import User as UserModel
+
+CurrentActiveUserDep = Annotated["UserModel", Depends(get_current_active_user)]
+
+
+# =============================================================================
+# Role-Based Access Control Dependencies
+# =============================================================================
+
+
+def require_role(*allowed_roles: str):
+    """
+    Create a dependency that requires specific roles.
+
+    Usage:
+        @router.get("/admin-only")
+        async def admin_endpoint(user: UserModel = Depends(require_role("admin"))):
+            ...
+
+    Args:
+        allowed_roles: Role names that are allowed access
+
+    Returns:
+        Dependency function that validates role
+    """
+    from app.models.user import UserRole
+
+    # Convert string roles to enum
+    role_enums = set()
+    for role in allowed_roles:
+        try:
+            role_enums.add(UserRole(role))
+        except ValueError:
+            logger.error(f"Invalid role specified: {role}")
+            raise ValueError(f"Invalid role: {role}")
+
+    async def role_checker(
+        request: Request,
+        user=Depends(get_current_active_user),
+    ):
+        """Check if user has required role."""
+        request_id = getattr(request.state, "request_id", None)
+
+        if user.role not in role_enums:
+            logger.warning(
+                "Role authorization failed",
+                user_id=str(user.id),
+                user_role=user.role.value,
+                required_roles=[r.value for r in role_enums],
+                endpoint=str(request.url.path),
+                request_id=request_id,
+            )
+
+            audit_logger.log_event(
+                event_type="auth",
+                action="role_check",
+                outcome="failure",
+                resource_type="endpoint",
+                resource_id=str(request.url.path),
+                details={
+                    "user_id": str(user.id),
+                    "user_role": user.role.value,
+                    "required_roles": [r.value for r in role_enums],
+                },
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error_code": "AUTHORIZATION_ERROR",
+                    "message": f"Access denied. Required roles: {[r.value for r in role_enums]}",
+                    "request_id": request_id,
+                },
+            )
+
+        logger.debug(
+            "Role authorization passed",
+            user_id=str(user.id),
+            role=user.role.value,
+        )
+
+        return user
+
+    return role_checker
+
+
+# Common role dependencies
+RequireAdminDep = Annotated["UserModel", Depends(require_role("admin"))]
+RequireTechnicianDep = Annotated["UserModel", Depends(require_role("admin", "technician"))]
+RequireSupportDep = Annotated["UserModel", Depends(require_role("admin", "technician", "support"))]
+
+
+async def require_admin(
+    request: Request,
+    user=Depends(get_current_active_user),
+):
+    """Require admin role."""
+    from app.models.user import UserRole
+
+    request_id = getattr(request.state, "request_id", None)
+
+    if user.role != UserRole.ADMIN:
+        logger.warning(
+            "Admin access denied",
+            user_id=str(user.id),
+            user_role=user.role.value,
+            endpoint=str(request.url.path),
+            request_id=request_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "AUTHORIZATION_ERROR",
+                "message": "Admin access required",
+                "request_id": request_id,
+            },
+        )
+
+    return user
+
+
+async def require_technician_or_admin(
+    request: Request,
+    user=Depends(get_current_active_user),
+):
+    """Require technician or admin role."""
+    from app.models.user import UserRole
+
+    request_id = getattr(request.state, "request_id", None)
+
+    if user.role not in {UserRole.ADMIN, UserRole.TECHNICIAN}:
+        logger.warning(
+            "Technician access denied",
+            user_id=str(user.id),
+            user_role=user.role.value,
+            endpoint=str(request.url.path),
+            request_id=request_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "AUTHORIZATION_ERROR",
+                "message": "Technician or admin access required",
+                "request_id": request_id,
+            },
+        )
+
+    return user
+
+
+# =============================================================================
+# Hybrid Authentication (JWT or API Key)
+# =============================================================================
+
+
+async def get_current_user_or_api_key(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    bearer_credentials: Optional[str] = Depends(bearer_scheme),
+    api_key: Optional[str] = Depends(api_key_header),
+):
+    """
+    Authenticate via JWT token OR API key.
+
+    Useful for endpoints that need to support both admin dashboard (JWT)
+    and webhooks/integrations (API key).
+
+    Returns:
+        User model or API key identifier
+    """
+    from app.models.user import User
+
+    request_id = getattr(request.state, "request_id", None)
+
+    # Try JWT first
+    if bearer_credentials:
+        try:
+            claims = decode_access_token(bearer_credentials.credentials)
+            user_id = claims.get("sub")
+
+            result = await db.execute(
+                select(User).where(User.id == UUID(user_id))
+            )
+            user = result.scalar_one_or_none()
+
+            if user and user.is_active:
+                request.state.current_user = user
+                request.state.auth_method = "jwt"
+                return {"type": "user", "user": user}
+
+        except Exception:
+            pass  # Fall through to API key
+
+    # Try API key
+    if api_key and verify_admin_api_key(api_key):
+        request.state.auth_method = "api_key"
+        logger.debug("Authenticated via API key", endpoint=str(request.url.path))
+        return {"type": "api_key", "api_key": api_key}
+
+    # No valid authentication
+    logger.warning(
+        "No valid authentication provided",
+        endpoint=str(request.url.path),
+        has_bearer=bool(bearer_credentials),
+        has_api_key=bool(api_key),
+        request_id=request_id,
+    )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={
+            "error_code": "AUTHENTICATION_ERROR",
+            "message": "Authentication required. Provide Bearer token or X-API-Key header.",
+            "request_id": request_id,
+        },
+    )
+
+
+HybridAuthDep = Annotated[dict, Depends(get_current_user_or_api_key)]
 
 
 # =============================================================================

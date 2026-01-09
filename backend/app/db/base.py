@@ -108,5 +108,7 @@ def import_models() -> None:
         device_metric,
         device_token,
         payment_trigger,
+        refresh_token,
         transaction,
+        user,
     )
