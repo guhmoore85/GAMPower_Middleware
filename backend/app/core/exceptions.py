@@ -720,3 +720,45 @@ class DeviceSuspendedError(BasePaygoError):
             request_id=request_id,
             context=context,
         )
+
+
+class TokenExpiredError(BasePaygoError):
+    """
+    Raised when a token has expired.
+
+    LOUD: Logs the token ID, device ID, and expiration time.
+    """
+
+    error_code = "TOKEN_EXPIRED"
+    http_status_code = 410  # Gone - resource no longer available
+
+    def __init__(
+        self,
+        *,
+        device_id: Optional[str | UUID] = None,
+        token_id: Optional[str | UUID] = None,
+        expires_at: Optional[datetime] = None,
+        request_id: Optional[str] = None,
+        context: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self.device_id = str(device_id) if device_id else None
+        self.token_id = str(token_id) if token_id else None
+        self.expires_at = expires_at
+
+        context = context or {}
+        if self.device_id:
+            context["device_id"] = self.device_id
+        if self.token_id:
+            context["token_id"] = self.token_id
+        if self.expires_at:
+            context["expires_at"] = self.expires_at.isoformat()
+
+        message = "Token has expired"
+        if self.expires_at:
+            message += f" (expired at {self.expires_at.isoformat()})"
+
+        super().__init__(
+            message,
+            request_id=request_id,
+            context=context,
+        )

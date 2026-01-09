@@ -12,6 +12,7 @@ from app.models.customer import Customer
 from app.models.device import Device, DeviceStatus, DeviceType
 from app.models.device_activation import ActivationType, DeviceActivation
 from app.models.device_metric import DeviceMetric, MetricType
+from app.models.device_token import DeviceToken
 from app.models.payment_trigger import PaymentTrigger, TriggerType
 from app.models.transaction import PaymentProvider, Transaction, TransactionStatus
 
@@ -30,5 +31,6 @@ __all__ = [
     "Transaction",
     "DeviceMetric",
     "DeviceActivation",
+    "DeviceToken",
     "PaymentTrigger",
 ]
