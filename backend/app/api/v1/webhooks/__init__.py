@@ -195,29 +195,32 @@ async def wave_webhook(
     request: Request,
     request_id: RequestIdDep,
     db: DbSessionDep,
-    x_wave_signature: str = Header(None, alias="X-Wave-Signature"),
+    wave_signature: str = Header(None, alias="Wave-Signature"),
 ):
     """
     Wave payment webhook handler.
+
+    Wave sends the signature in the Wave-Signature header:
+        Wave-Signature: t=<timestamp>,v1=<signature>
 
     Always returns 200 OK to prevent retries.
     Errors are logged but not returned.
     """
     logger.info(
         "Wave webhook received",
-        signature_present=bool(x_wave_signature),
+        signature_present=bool(wave_signature),
         request_id=request_id,
     )
 
     try:
-        # Get raw body for signature verification
+        # Get raw body for signature verification (before parsing JSON)
         body = await request.body()
 
-        # Verify signature
+        # Verify signature using Wave's signing-secret strategy
         provider = get_payment_provider("wave")
         is_valid = await provider.verify_webhook(
             payload=body,
-            signature=x_wave_signature or "",
+            signature=wave_signature or "",
         )
 
         if not is_valid:
