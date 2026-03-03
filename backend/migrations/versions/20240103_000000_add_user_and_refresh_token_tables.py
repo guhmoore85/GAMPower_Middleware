@@ -27,6 +27,7 @@ def upgrade() -> None:
         "support",
         "readonly",
         name="user_role_enum",
+        create_type=False,
     )
     user_role_enum.create(op.get_bind(), checkfirst=True)
 

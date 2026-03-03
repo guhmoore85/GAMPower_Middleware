@@ -208,12 +208,20 @@ def setup_logging(
     else:
         format_func = pretty_formatter
 
+    # Use sink functions so loguru doesn't try to parse our output as format strings
+    def stderr_sink(message):
+        record = message.record
+        sys.stderr.write(format_func(record))
+
+    def file_sink(message):
+        record = message.record
+        return json_formatter(record)
+
     # Add console handler
     logger.add(
-        sys.stderr,
-        format=format_func,
+        stderr_sink,
         level=level,
-        colorize=False,  # We handle colors in pretty_formatter
+        colorize=False,
         backtrace=True,
         diagnose=True,
     )
@@ -226,13 +234,14 @@ def setup_logging(
 
         logger.add(
             log_file_path,
-            format=json_formatter,  # Always JSON for files
+            format="{message}",
             level=level,
             rotation=rotation_size,
             retention=retention_count,
             compression="gz",
             backtrace=True,
             diagnose=True,
+            serialize=True,
         )
 
     # Configure SQLAlchemy logging

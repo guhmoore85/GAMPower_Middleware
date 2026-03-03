@@ -487,7 +487,7 @@ class TriggerService:
 
         # Generate idempotency key
         idempotency_key = generate_idempotency_key(
-            prefix="trigger",
+            "trigger",
             str(trigger.id),
             str(device.id),
         )

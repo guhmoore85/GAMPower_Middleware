@@ -139,6 +139,10 @@ class Settings(BaseSettings):
         default=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
         description="Allowed CORS origins",
     )
+    webhook_base_url: str = Field(
+        default="http://localhost:8000",
+        description="Public base URL for webhook callbacks (e.g. ngrok tunnel URL)",
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod

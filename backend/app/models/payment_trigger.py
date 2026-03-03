@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    ForeignKey,
     Index,
     UniqueConstraint,
     event,
@@ -91,13 +92,14 @@ class PaymentTrigger(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # Device this trigger belongs to
     device_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("device.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
 
     # Trigger type
     trigger_type: Mapped[TriggerType] = mapped_column(
-        Enum(TriggerType, name="trigger_type_enum"),
+        Enum(TriggerType, name="trigger_type_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
 

@@ -15,6 +15,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    ForeignKey,
     Index,
     String,
     event,
@@ -60,6 +61,7 @@ class DeviceActivation(Base, UUIDPrimaryKeyMixin):
     # Device being activated
     device_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("device.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
@@ -67,6 +69,7 @@ class DeviceActivation(Base, UUIDPrimaryKeyMixin):
     # Transaction that triggered this activation (for payment type)
     transaction_id: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("transaction.id", ondelete="SET NULL"),
         index=True,
         nullable=True,
     )
@@ -79,7 +82,7 @@ class DeviceActivation(Base, UUIDPrimaryKeyMixin):
 
     # Type of activation
     activation_type: Mapped[ActivationType] = mapped_column(
-        Enum(ActivationType, name="activation_type_enum"),
+        Enum(ActivationType, name="activation_type_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
 
