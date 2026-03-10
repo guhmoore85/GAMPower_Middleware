@@ -141,7 +141,7 @@ class Settings(BaseSettings):
     )
     webhook_base_url: str = Field(
         default="http://localhost:8000",
-        description="Public base URL for webhook callbacks (e.g. ngrok tunnel URL)",
+        description="Public base URL for webhook callbacks (e.g. https://gampowerapi.work via Cloudflare Tunnel)",
     )
 
     @field_validator("cors_origins", mode="before")

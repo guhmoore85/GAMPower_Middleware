@@ -1,0 +1,40 @@
+# =============================================================================
+# Cloudflare Tunnel Configuration — GAMPower Middleware
+# =============================================================================
+# Domain: gampowerapi.work
+#
+# SETUP STEPS:
+# 1. Install cloudflared:
+#      curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+#      chmod +x /usr/local/bin/cloudflared
+#
+# 2. Authenticate with Cloudflare:
+#      cloudflared tunnel login
+#
+# 3. Create the tunnel:
+#      cloudflared tunnel create gampower
+#
+# 4. Route DNS (points gampowerapi.work → tunnel):
+#      cloudflared tunnel route dns gampower gampowerapi.work
+#
+# 5. Copy tunnel credentials:
+#      The credentials file is created at ~/.cloudflared/<TUNNEL_ID>.json
+#      Update the 'credentials-file' path below with your tunnel ID
+#
+# 6. Run the tunnel:
+#      cloudflared tunnel --config cloudflare-tunnel.yml run gampower
+#
+# 7. Update Wave Business Portal webhook URL to:
+#      https://gampowerapi.work/api/v1/webhooks/wave
+# =============================================================================
+
+tunnel: gampower
+credentials-file: /root/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # API backend (FastAPI on port 8000)
+  - hostname: gampowerapi.work
+    service: http://localhost:8000
+
+  # Catch-all (required by cloudflared)
+  - service: http_status:404
