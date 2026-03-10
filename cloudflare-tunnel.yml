@@ -28,8 +28,8 @@
 #      https://gampowerapi.work/api/v1/webhooks/wave
 # =============================================================================
 
-tunnel: gampower
-credentials-file: /root/.cloudflared/<TUNNEL_ID>.json
+tunnel: de8ac6f2-94ed-406e-a51f-cbbe4514427b
+credentials-file: /root/.cloudflared/de8ac6f2-94ed-406e-a51f-cbbe4514427b.json
 
 ingress:
   # API backend (FastAPI on port 8000)
