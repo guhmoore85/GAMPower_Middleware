@@ -40,6 +40,13 @@ from app.schemas.common import (
     PaginatedResponse,
     RevenueData,
 )
+from app.schemas.customer import (
+    CustomerCreate,
+    CustomerResponse,
+    CustomerUpdate,
+    CustomerWithDevices,
+    CustomerDeviceSummary,
+)
 from app.schemas.device import (
     DeviceActivateRequest,
     DeviceActivateResponse,
@@ -363,6 +370,282 @@ async def suspend_device(
         metadata=device.metadata_,
         created_at=device.created_at,
         updated_at=device.updated_at,
+    )
+
+
+# =============================================================================
+# CUSTOMER MANAGEMENT
+# =============================================================================
+
+
+@router.get(
+    "/customers",
+    response_model=PaginatedResponse[CustomerResponse],
+)
+async def list_customers(
+    request_id: RequestIdDep,
+    db: DbSessionDep,
+    admin_key: AdminAuthDep,
+    pagination: PaginationDep,
+    payment_provider: Optional[str] = Query(None, description="Filter by payment provider"),
+):
+    """
+    List all customers with pagination.
+    """
+    logger.debug(
+        "List customers",
+        page=pagination.page,
+        payment_provider=payment_provider,
+        request_id=request_id,
+    )
+
+    query = select(Customer)
+
+    if payment_provider:
+        query = query.where(Customer.payment_provider == payment_provider)
+
+    count_query = select(func.count()).select_from(query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    query = query.offset(pagination.offset).limit(pagination.page_size)
+    query = query.order_by(Customer.created_at.desc())
+
+    result = await db.execute(query)
+    customers = result.scalars().all()
+
+    items = [
+        CustomerResponse(
+            id=c.id,
+            external_id=c.external_id,
+            email=c.email,
+            phone=c.phone,
+            payment_provider=c.payment_provider,
+            payment_provider_id=c.payment_provider_id,
+            metadata=c.metadata_,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+        )
+        for c in customers
+    ]
+
+    return PaginatedResponse.create(
+        items=items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
+
+
+@router.post(
+    "/customers",
+    response_model=CustomerResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": ErrorResponse, "description": "Validation error"},
+        409: {"model": ErrorResponse, "description": "Customer already exists"},
+    },
+)
+async def create_customer(
+    customer_data: CustomerCreate,
+    request_id: RequestIdDep,
+    db: DbSessionDep,
+    admin_key: AdminAuthDep,
+):
+    """
+    Create a new customer.
+    """
+    logger.info(
+        "Create customer request",
+        external_id=customer_data.external_id,
+        payment_provider=customer_data.payment_provider.value,
+        request_id=request_id,
+    )
+
+    # Check for existing customer with same external_id
+    existing = await db.execute(
+        select(Customer).where(Customer.external_id == customer_data.external_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "CUSTOMER_EXISTS",
+                "message": f"Customer with external_id '{customer_data.external_id}' already exists",
+                "request_id": request_id,
+            },
+        )
+
+    customer = Customer(
+        external_id=customer_data.external_id,
+        email=customer_data.email,
+        phone=customer_data.phone,
+        payment_provider=customer_data.payment_provider,
+        payment_provider_id=customer_data.payment_provider_id,
+        metadata_=customer_data.metadata or {},
+    )
+
+    db.add(customer)
+    await db.commit()
+    await db.refresh(customer)
+
+    logger.info(
+        "Customer created",
+        customer_id=str(customer.id),
+        external_id=customer.external_id,
+        request_id=request_id,
+    )
+
+    audit_logger.log_event(
+        event_type="customer",
+        action="create",
+        resource_type="customer",
+        resource_id=str(customer.id),
+        details={
+            "external_id": customer.external_id,
+            "payment_provider": customer.payment_provider.value,
+        },
+    )
+
+    return CustomerResponse(
+        id=customer.id,
+        external_id=customer.external_id,
+        email=customer.email,
+        phone=customer.phone,
+        payment_provider=customer.payment_provider,
+        payment_provider_id=customer.payment_provider_id,
+        metadata=customer.metadata_,
+        created_at=customer.created_at,
+        updated_at=customer.updated_at,
+    )
+
+
+@router.get(
+    "/customers/{customer_id}",
+    response_model=CustomerWithDevices,
+    responses={
+        404: {"model": ErrorResponse, "description": "Customer not found"},
+    },
+)
+async def get_customer_details(
+    customer_id: UUID,
+    request_id: RequestIdDep,
+    db: DbSessionDep,
+    admin_key: AdminAuthDep,
+):
+    """
+    Get customer details including associated devices.
+    """
+    result = await db.execute(
+        select(Customer).where(Customer.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "CUSTOMER_NOT_FOUND",
+                "message": f"Customer not found: {customer_id}",
+                "request_id": request_id,
+            },
+        )
+
+    # Get associated devices
+    devices_result = await db.execute(
+        select(Device).where(Device.customer_id == customer_id)
+    )
+    devices = devices_result.scalars().all()
+
+    return CustomerWithDevices(
+        id=customer.id,
+        external_id=customer.external_id,
+        email=customer.email,
+        phone=customer.phone,
+        payment_provider=customer.payment_provider,
+        payment_provider_id=customer.payment_provider_id,
+        metadata=customer.metadata_,
+        created_at=customer.created_at,
+        updated_at=customer.updated_at,
+        device_count=len(devices),
+        devices=[
+            CustomerDeviceSummary(
+                id=d.id,
+                external_id=d.external_id,
+                device_type=d.device_type.value,
+                status=d.status.value,
+            )
+            for d in devices
+        ],
+    )
+
+
+@router.patch(
+    "/customers/{customer_id}",
+    response_model=CustomerResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Customer not found"},
+    },
+)
+async def update_customer(
+    customer_id: UUID,
+    update_data: CustomerUpdate,
+    request_id: RequestIdDep,
+    db: DbSessionDep,
+    admin_key: AdminAuthDep,
+):
+    """
+    Update a customer.
+    """
+    logger.info(
+        "Update customer request",
+        customer_id=str(customer_id),
+        request_id=request_id,
+    )
+
+    result = await db.execute(
+        select(Customer).where(Customer.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "CUSTOMER_NOT_FOUND",
+                "message": f"Customer not found: {customer_id}",
+                "request_id": request_id,
+            },
+        )
+
+    # Update provided fields
+    update_fields = update_data.model_dump(exclude_unset=True)
+    if "metadata" in update_fields:
+        update_fields["metadata_"] = update_fields.pop("metadata")
+
+    for field, value in update_fields.items():
+        setattr(customer, field, value)
+
+    await db.commit()
+    await db.refresh(customer)
+
+    logger.info(
+        "Customer updated",
+        customer_id=str(customer.id),
+        updated_fields=list(update_fields.keys()),
+        request_id=request_id,
+    )
+
+    return CustomerResponse(
+        id=customer.id,
+        external_id=customer.external_id,
+        email=customer.email,
+        phone=customer.phone,
+        payment_provider=customer.payment_provider,
+        payment_provider_id=customer.payment_provider_id,
+        metadata=customer.metadata_,
+        created_at=customer.created_at,
+        updated_at=customer.updated_at,
     )
 
 
