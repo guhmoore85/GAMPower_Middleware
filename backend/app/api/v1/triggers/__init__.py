@@ -351,6 +351,9 @@ async def update_trigger(
         else:
             trigger.deactivate()
 
+    if update_data.last_triggered_at is not None:
+        trigger.last_triggered_at = update_data.last_triggered_at
+
     await db.commit()
     await db.refresh(trigger)
 

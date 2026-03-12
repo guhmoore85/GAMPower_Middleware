@@ -143,6 +143,9 @@ class TriggerUpdate(BaseSchema):
     is_active: Optional[bool] = Field(
         None, description="Active status"
     )
+    last_triggered_at: Optional[datetime] = Field(
+        None, description="Override last triggered time (for testing)"
+    )
 
 
 class TriggerResponse(TriggerBase):
