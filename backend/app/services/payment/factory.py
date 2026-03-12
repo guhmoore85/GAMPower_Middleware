@@ -89,6 +89,9 @@ class PaymentProviderFactory:
                 api_key=settings.wave_api_key,
                 api_url=settings.wave_api_url,
                 webhook_secret=settings.wave_webhook_secret,
+                checkout_api_key=settings.wave_checkout_api_key,
+                balance_api_key=settings.wave_balance_api_key,
+                payout_api_key=settings.wave_payout_api_key,
             )
 
         elif provider_name == "qmoney":

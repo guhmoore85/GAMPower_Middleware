@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Enum, Index, String, Text, event
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Index, String, Text, event
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
@@ -80,7 +80,7 @@ class Device(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     # Device type
     device_type: Mapped[DeviceType] = mapped_column(
-        Enum(DeviceType, name="device_type_enum"),
+        Enum(DeviceType, name="device_type_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
 
@@ -102,7 +102,7 @@ class Device(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     # Device status
     status: Mapped[DeviceStatus] = mapped_column(
-        Enum(DeviceStatus, name="device_status_enum"),
+        Enum(DeviceStatus, name="device_status_enum", values_callable=lambda x: [e.value for e in x]),
         default=DeviceStatus.ACTIVE,
         index=True,
         nullable=False,
@@ -119,6 +119,7 @@ class Device(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # Customer relationship
     customer_id: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("customer.id", ondelete="SET NULL"),
         index=True,
         nullable=True,
     )

@@ -17,6 +17,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    ForeignKey,
     Index,
     Numeric,
     String,
@@ -80,13 +81,14 @@ class DeviceMetric(Base, UUIDPrimaryKeyMixin):
     # Device relationship
     device_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("device.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
 
     # Metric info
     metric_type: Mapped[MetricType] = mapped_column(
-        Enum(MetricType, name="metric_type_enum"),
+        Enum(MetricType, name="metric_type_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
 

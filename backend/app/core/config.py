@@ -139,6 +139,10 @@ class Settings(BaseSettings):
         default=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
         description="Allowed CORS origins",
     )
+    webhook_base_url: str = Field(
+        default="http://localhost:8000",
+        description="Public base URL for webhook callbacks (e.g. https://gampowerapi.work via Cloudflare Tunnel)",
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -151,18 +155,31 @@ class Settings(BaseSettings):
     # =========================================================================
     # Payment Providers
     # =========================================================================
-    # Wave
+    # Wave - Base URL (all endpoints are relative to this)
     wave_api_url: str = Field(
-        default="https://api.wave.com/v1",
-        description="Wave API base URL",
+        default="https://api.wave.com",
+        description="Wave API base URL (without /v1 suffix)",
     )
+    # Wave - Per-API keys (each API gets its own key from the Wave Business Portal)
     wave_api_key: str = Field(
         default="",
-        description="Wave API key",
+        description="Wave master API key (all APIs)",
+    )
+    wave_checkout_api_key: str = Field(
+        default="",
+        description="Wave Checkout API key",
+    )
+    wave_balance_api_key: str = Field(
+        default="",
+        description="Wave Balance API key",
+    )
+    wave_payout_api_key: str = Field(
+        default="",
+        description="Wave Payout API key",
     )
     wave_webhook_secret: str = Field(
         default="",
-        description="Wave webhook signing secret",
+        description="Wave webhook signing secret (from webhook registration)",
     )
 
     # QMoney
@@ -335,7 +352,7 @@ class Settings(BaseSettings):
                 errors.append("LOG_LEVEL should not be DEBUG in production")
 
         # Validate payment provider settings (warn if not set)
-        if not self.wave_api_key:
+        if not self.wave_api_key and not self.wave_checkout_api_key:
             # This is a warning, not an error - mock provider will be used
             pass
 
@@ -435,8 +452,12 @@ def validate_startup_config() -> dict[str, Any]:
     }
 
     # Check for mock payment providers
-    if not settings.wave_api_key or settings.wave_api_key.startswith("mock"):
-        results["warnings"].append("Wave API key not configured - using mock provider")
+    has_wave_keys = (
+        settings.wave_api_key
+        or settings.wave_checkout_api_key
+    )
+    if not has_wave_keys or settings.wave_api_key.startswith("mock"):
+        results["warnings"].append("Wave API keys not configured - using mock provider")
 
     if not settings.qmoney_api_key or settings.qmoney_api_key.startswith("mock"):
         results["warnings"].append("QMoney API key not configured - using mock provider")

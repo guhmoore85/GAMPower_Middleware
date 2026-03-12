@@ -44,10 +44,8 @@ target_metadata = Base.metadata
 
 def get_url() -> str:
     """Get database URL from settings."""
-    # Use sync driver for Alembic
-    url = str(settings.database_url)
-    # Replace async driver with sync driver
-    return url.replace("+asyncpg", "")
+    # Keep asyncpg driver for async migrations
+    return str(settings.database_url)
 
 
 def run_migrations_offline() -> None:

@@ -120,7 +120,7 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     # Role for RBAC
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role_enum"),
+        Enum(UserRole, name="user_role_enum", values_callable=lambda x: [e.value for e in x]),
         default=UserRole.READONLY,
         nullable=False,
         index=True,

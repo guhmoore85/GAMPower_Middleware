@@ -16,6 +16,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    ForeignKey,
     Index,
     Numeric,
     String,
@@ -95,6 +96,7 @@ class Transaction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # Customer making the payment
     customer_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("customer.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
@@ -102,13 +104,14 @@ class Transaction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # Device being paid for (optional - some payments may not be device-specific)
     device_id: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("device.id", ondelete="SET NULL"),
         index=True,
         nullable=True,
     )
 
     # Payment provider info
     payment_provider: Mapped[PaymentProvider] = mapped_column(
-        Enum(PaymentProvider, name="payment_provider_enum"),
+        Enum(PaymentProvider, name="payment_provider_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
 
@@ -132,7 +135,7 @@ class Transaction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     # Transaction status
     status: Mapped[TransactionStatus] = mapped_column(
-        Enum(TransactionStatus, name="transaction_status_enum"),
+        Enum(TransactionStatus, name="transaction_status_enum", values_callable=lambda x: [e.value for e in x]),
         default=TransactionStatus.PENDING,
         index=True,
         nullable=False,
