@@ -141,15 +141,19 @@ class WavePaymentProvider(PaymentProvider):
             "client_reference", f"gp_{customer_id.hex[:12]}_{uuid4().hex[:8]}"
         )
 
+        # Wave requires success_url and error_url for all checkout sessions
+        default_base_url = "https://gampowerapi.work"
+        if not success_url:
+            success_url = f"{default_base_url}/payment/success"
+        if not error_url:
+            error_url = f"{default_base_url}/payment/error"
+
         payload = {
             "amount": str(int(amount)) if currency == "XOF" else str(amount),
             "currency": currency.upper(),
+            "success_url": success_url,
+            "error_url": error_url,
         }
-
-        if success_url:
-            payload["success_url"] = success_url
-        if error_url:
-            payload["error_url"] = error_url
         if client_reference:
             payload["client_reference"] = client_reference
 
@@ -197,6 +201,8 @@ class WavePaymentProvider(PaymentProvider):
                     status_code=response.status_code,
                     error_code=error_code,
                     error_message=error_message,
+                    error_details=error_data,
+                    request_payload=payload,
                 )
 
                 return PaymentResult(
